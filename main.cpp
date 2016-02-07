@@ -20,19 +20,19 @@ struct sdl_deleter
   void operator()(SDL_Texture *p) const { SDL_DestroyTexture(p); }
 };
 
-void drawPixel(SDL_Renderer* renderer, int x, int y)
+void pixel(SDL_Renderer* renderer, int x, int y)
 {
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255 );
     SDL_RenderDrawPoint(renderer, x, y);
 }
 
-void drawPixel(SDL_Renderer* renderer, int x, int y, int r, int g, int b)
+void pixel(SDL_Renderer* renderer, int x, int y, int r, int g, int b)
 {
     SDL_SetRenderDrawColor(renderer, r, g, b, 255 );
     SDL_RenderDrawPoint(renderer, x, y);    
 }
 
-void drawLine(SDL_Renderer* renderer, int x0, int y0, int x1, int y1)
+void line(SDL_Renderer* renderer, int x0, int y0, int x1, int y1)
 { 
     bool steep = false; 
 
@@ -61,11 +61,11 @@ void drawLine(SDL_Renderer* renderer, int x0, int y0, int x1, int y1)
     { 
         if (steep) 
         { 
-            drawPixel(renderer, y, x); 
+            pixel(renderer, y, x); 
         } 
         else 
         { 
-            drawPixel(renderer, x, y); 
+            pixel(renderer, x, y); 
         } 
 
         error2 += derror2; 
@@ -77,6 +77,36 @@ void drawLine(SDL_Renderer* renderer, int x0, int y0, int x1, int y1)
         } 
     } 
 } 
+
+void triangle(SDL_Renderer* renderer, Vec2i t0, Vec2i t1, Vec2i t2, int r, int g, int b) 
+{
+    if (t0.y==t1.y && t0.y==t2.y) return; // i dont care about degenerate triangles
+
+    if (t0.y>t1.y) std::swap(t0, t1);
+    if (t0.y>t2.y) std::swap(t0, t2);
+    if (t1.y>t2.y) std::swap(t1, t2);
+
+    int total_height = t2.y-t0.y;
+    for (int i=0; i<total_height; i++)
+     {
+        bool second_half = i>t1.y-t0.y || t1.y==t0.y;
+        int segment_height = second_half ? t2.y-t1.y : t1.y-t0.y;
+
+        float alpha = (float)i/total_height;
+        float beta  = (float)(i-(second_half ? t1.y-t0.y : 0))/segment_height; // be careful: with above conditions no division by zero here
+
+        Vec2i A =               t0 + (t2-t0)*alpha;
+        Vec2i B = second_half ? t1 + (t2-t1)*beta : t0 + (t1-t0)*beta;
+
+        if (A.x>B.x) std::swap(A, B);
+
+        for (int j=A.x; j<=B.x; j++) 
+        {
+           pixel(renderer, j, t0.y+i, r, g, b); // attention, due to int casts t0.y+i != A.y
+        }
+    }
+}
+
 
 int main(int argc, char ** argv)
 {
@@ -130,24 +160,29 @@ int main(int argc, char ** argv)
         SDL_SetRenderDrawColor(renderer.get(), 0, 0, 0, 255 );
         SDL_RenderClear(renderer.get());
 
-        // For all faces
+
+        Vec3f light_dir(0,0,-1);
+
         for (int i=0; i<model->nfaces(); i++) 
         {
             std::vector<int> face = model->face(i);
+            Vec2i screen_coords[3];
+            Vec3f world_coords[3];
 
             for (int j=0; j<3; j++) 
             {
-                Vec3f v0 = model->vert(face[j]);
-                Vec3f v1 = model->vert(face[(j+1)%3]);
+                Vec3f v = model->vert(face[j]);
+                screen_coords[j] = Vec2i((v.x+1.)*width/2., (v.y+1.)*height/2.);
+                world_coords[j]  = v;
+            }
 
-                int x0 = (v0.x+1.)*width/2.;
-                int y0 = (v0.y+1.)*height/2.;
+            Vec3f n = (world_coords[2]-world_coords[0])^(world_coords[1]-world_coords[0]);
+            n.normalize();
+            float intensity = n*light_dir;
 
-                int x1 = (v1.x+1.)*width/2.;
-                int y1 = (v1.y+1.)*height/2.;
-
-                // Draw face
-                drawLine(renderer.get(), x0, y0, x1, y1);
+            if (intensity>0) 
+            {
+                triangle(renderer.get(), screen_coords[0], screen_coords[1], screen_coords[2], intensity*255, intensity*255, intensity*255);
             }
         }
 
